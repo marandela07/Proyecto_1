@@ -1,0 +1,151 @@
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//Universidad del Valle de Guatemala
+//Maryela Morales #23726
+//Electrónica Digital 02
+//FECHA*************
+//PROYECTO 01
+
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//librerías
+#include <Arduino.h>
+#include <stdint.h>
+#include <driver/ledc.h>
+
+//definición de pines
+#define led_1 14 //verde
+#define led_2 12 //amarillo
+#define led_3 32 //rojo
+//botones sensor
+#define butLectura 2
+#define sensorTemperatura 13
+#define pinServo 15
+
+//PWM LEDs
+#define pwmChannel1 0
+#define pwmChannel2 1
+#define pwmChannel3 2
+#define freqPWM 2500
+#define resoPWM 8
+
+//PWM Servo
+#define pwmServo 3
+#define freqServo 50
+#define resoServo 16   // 16 bits → 65535 ticks
+
+//posiciones servo
+uint32_t posiciones[] = {
+  1638,   
+  4915,  
+  8192    
+};
+
+volatile uint32_t pulsoServo = posiciones[1]; 
+volatile uint32_t objetivoServo = posiciones[1];
+volatile uint8_t pasoServo = 50;  //para actualizar
+unsigned long lastServo = 0; //ultima posicion
+uint8_t intervaloServo = 20; 
+
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//prototipos de funciones
+void initPWM(void);
+void IRAM_ATTR ISR_temp(void);
+void moverServo(void);
+
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//variables globales
+int adcRAW;
+float adcConvertido = 0; 
+
+//INTERRUPCIONES
+volatile bool banderaBut = false;
+volatile uint32_t lastBut = 0;
+const unsigned long delayDebounce = 250;
+
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//ISRS de interrupcion
+//boton de lectura
+void IRAM_ATTR ISR_temp(){
+  unsigned long tiempo = millis();
+  if (tiempo - lastBut > delayDebounce){
+    banderaBut = true;
+    lastBut = tiempo;
+  }
+}
+
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//configuracion
+void setup(){
+  Serial.begin(115200);
+
+  pinMode(sensorTemperatura, INPUT);
+  pinMode(butLectura, INPUT); // si usas botón a GND, considera INPUT_PULLUP
+  initPWM();
+
+  attachInterrupt(digitalPinToInterrupt(butLectura), ISR_temp, FALLING);
+}
+
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//loop
+void loop(){
+  if (banderaBut){
+    banderaBut = false;
+
+    adcRAW = analogRead(sensorTemperatura);
+    adcConvertido = (adcRAW * (3.3/4095)) / 0.01; 
+    Serial.print("Temperatura: ");
+    Serial.println(adcConvertido);
+
+
+    if (adcConvertido < 20.0){
+      ledcWrite(pwmChannel3, 255); //verde
+      objetivoServo = posiciones[0]; // izquierda
+    }
+    else if (adcConvertido >= 20.0 && adcConvertido < 25.0){
+      ledcWrite(pwmChannel2, 255); //amarillo
+      objetivoServo = posiciones[1]; // centro
+    }
+    else if (adcConvertido >= 25.0){
+      ledcWrite(pwmChannel1, 255); //rojo
+      objetivoServo = posiciones[2]; // derecha
+    }
+  }
+
+  moverServo();  // actualizar servo 
+}
+
+//.:・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.・°☆.。.:・°☆.。.:・°☆.。.:・°☆*:.
+//otras funciones
+//canales
+void initPWM(){
+  ledcSetup(pwmChannel1, freqPWM, resoPWM);
+  ledcAttachPin(led_1, pwmChannel1);
+
+  ledcSetup(pwmChannel2, freqPWM, resoPWM);
+  ledcAttachPin(led_2, pwmChannel2);
+
+  ledcSetup(pwmChannel3, freqPWM, resoPWM);
+  ledcAttachPin(led_3, pwmChannel3);
+
+  ledcSetup(pwmServo, freqServo, resoServo);
+  ledcAttachPin(pinServo, pwmServo);
+
+  ledcWrite(pwmServo, pulsoServo);
+}
+
+//movimiento de servo 
+void moverServo(){
+  unsigned long tiempo = millis();
+  if (tiempo - lastServo >= intervaloServo){
+    lastServo = tiempo;
+
+    if (pulsoServo < objetivoServo) {
+      pulsoServo += pasoServo;
+      if (pulsoServo > objetivoServo) pulsoServo = objetivoServo;
+    } else if (pulsoServo > objetivoServo) {
+      pulsoServo -= pasoServo;
+      if (pulsoServo < objetivoServo) pulsoServo = objetivoServo;
+    }
+
+    ledcWrite(pwmServo, pulsoServo);
+  }
+}
